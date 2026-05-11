@@ -1,4 +1,13 @@
 import type { FastifyPluginAsync } from 'fastify'
+import { requireAuth } from '../auth/middleware.js'
+import { db } from '../db/client.js'
 
-// TODO: implement worker routes (Task 11)
-export const workerRoutes: FastifyPluginAsync = async (_fastify) => {}
+export const workerRoutes: FastifyPluginAsync = async (fastify) => {
+  fastify.addHook('onRequest', requireAuth)
+
+  fastify.get('/', async () =>
+    db.query.workers.findMany({
+      orderBy: (w, { desc }) => [desc(w.lastHeartbeatAt)],
+    }),
+  )
+}
