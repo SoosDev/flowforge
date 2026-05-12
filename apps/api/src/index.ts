@@ -11,6 +11,7 @@ import { workerRoutes } from './workers/routes.js'
 import { logRoutes } from './logs/routes.js'
 import { setupWebSocket } from './websocket/server.js'
 import { startStallDetector } from './workers/stall-detector.js'
+import { internalRoutes } from './runs/internal-routes.js'
 
 const server = Fastify({ logger: true })
 
@@ -25,6 +26,7 @@ await server.register(workflowRoutes, { prefix: '/workflows' })
 await server.register(runRoutes, { prefix: '/runs' })
 await server.register(workerRoutes, { prefix: '/workers' })
 await server.register(logRoutes, { prefix: '/logs' })
+await server.register(internalRoutes, { prefix: '/internal' })
 
 setupWebSocket(server)
 

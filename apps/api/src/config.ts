@@ -9,5 +9,6 @@ export const env = {
   REDIS_HOST: process.env['REDIS_HOST'] ?? 'localhost',
   REDIS_PORT: parseInt(process.env['REDIS_PORT'] ?? '6379'),
   JWT_SECRET: requireEnv('JWT_SECRET'),
+  WORKER_SECRET: requireEnv('WORKER_SECRET'),
   PORT: parseInt(process.env['PORT'] ?? '3001'),
 }

@@ -57,3 +57,15 @@ export function startProcessor(): Worker {
     },
   )
 }
+
+export function attachFailureHandler(worker: Worker): void {
+  worker.on('failed', async (job, err) => {
+    if (!job) return
+    const { taskRunId } = job.data as JobPayload
+    if (job.attemptsMade >= (job.opts.attempts ?? 3)) {
+      await notifyApi(`/internal/task-runs/${taskRunId}/fail`, {
+        error: err.message ?? 'Unknown error',
+      })
+    }
+  })
+}

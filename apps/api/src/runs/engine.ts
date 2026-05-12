@@ -24,7 +24,7 @@ export async function startRun(workflowId: string, input: unknown): Promise<stri
   broadcaster.emit('workflow.run.started', { runId: run!.id, workflowId })
 
   const readyTaskIds = getReadyTasks(workflow.definition.tasks, new Set())
-  await enqueueTaskBatch(run!.id, workflow.definition.tasks, readyTaskIds, input)
+  await enqueueTaskBatch(run!.id, workflow.definition.tasks, readyTaskIds, input, [])
 
   return run!.id
 }
@@ -92,15 +92,20 @@ async function advanceWorkflow(workflowRunId: string): Promise<void> {
   const enqueuedIds = new Set(run.taskRuns.map((tr) => tr.taskId))
   const newTaskIds = readyTaskIds.filter((id) => !enqueuedIds.has(id))
 
-  await enqueueTaskBatch(workflowRunId, allTasks, newTaskIds, run.input)
+  await enqueueTaskBatch(workflowRunId, allTasks, newTaskIds, run.input, run.taskRuns)
 }
 
 async function enqueueTaskBatch(
   workflowRunId: string,
   allTasks: TaskDefinition[],
   taskIds: string[],
-  input: unknown,
+  runInput: unknown,
+  completedRuns: Array<{ taskId: string; output: unknown }>,
 ): Promise<void> {
+  const depOutputsByTaskId = Object.fromEntries(
+    completedRuns.map((tr) => [tr.taskId, tr.output]),
+  )
+
   for (const taskId of taskIds) {
     const taskDef = allTasks.find((t) => t.id === taskId)!
     const [taskRun] = await db.insert(taskRuns).values({
@@ -110,12 +115,17 @@ async function enqueueTaskBatch(
       status: TaskStatus.PENDING,
     }).returning()
 
+    const taskInput = {
+      ...(runInput as Record<string, unknown>),
+      ...depOutputsByTaskId,
+    }
+
     await queueClient.enqueue({
       taskRunId: taskRun!.id,
       workflowRunId,
       taskType: taskDef.type,
       config: taskDef.config ?? {},
-      input,
+      input: taskInput,
     })
 
     broadcaster.emit('task.run.started', {
