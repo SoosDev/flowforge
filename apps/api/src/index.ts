@@ -1,3 +1,4 @@
+import './observability/tracer.js'
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import jwt from '@fastify/jwt'
@@ -31,5 +32,11 @@ await server.register(internalRoutes, { prefix: '/internal' })
 setupWebSocket(server)
 
 await runMigrations(env.DATABASE_URL)
+
+if (process.env['SEED'] === 'true') {
+  const { seed } = await import('./seed/index.js')
+  await seed()
+}
+
 await server.listen({ port: env.PORT, host: '0.0.0.0' })
 startStallDetector()

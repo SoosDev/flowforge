@@ -1,4 +1,5 @@
 import { eq } from 'drizzle-orm'
+import { trace } from '@opentelemetry/api'
 import { db } from '../db/client.js'
 import { workflows, workflowRuns, taskRuns } from '@flowforge/shared/db/schema'
 import { validateDAG, getReadyTasks, TaskStatus, WorkflowStatus } from '@flowforge/shared'
@@ -6,55 +7,88 @@ import type { TaskDefinition } from '@flowforge/shared'
 import { queueClient } from '../queue/client.js'
 import { broadcaster } from '../websocket/broadcaster.js'
 
+const tracer = trace.getTracer('flowforge-engine')
+
 export async function startRun(workflowId: string, input: unknown): Promise<string> {
-  const workflow = await db.query.workflows.findFirst({
-    where: eq(workflows.id, workflowId),
+  return tracer.startActiveSpan('workflow.run.start', async (span) => {
+    span.setAttribute('workflow.id', workflowId)
+    try {
+      const workflow = await db.query.workflows.findFirst({
+        where: eq(workflows.id, workflowId),
+      })
+      if (!workflow) throw new Error(`Workflow ${workflowId} not found`)
+
+      validateDAG(workflow.definition.tasks)
+
+      const [run] = await db.insert(workflowRuns).values({
+        workflowId,
+        status: WorkflowStatus.RUNNING,
+        input: input as Record<string, unknown>,
+        startedAt: new Date(),
+      }).returning()
+
+      span.setAttribute('workflow.run.id', run!.id)
+      broadcaster.emit('workflow.run.started', { runId: run!.id, workflowId })
+
+      const readyTaskIds = getReadyTasks(workflow.definition.tasks, new Set())
+      await enqueueTaskBatch(run!.id, workflow.definition.tasks, readyTaskIds, input, [])
+
+      return run!.id
+    } catch (err) {
+      span.recordException(err as Error)
+      throw err
+    } finally {
+      span.end()
+    }
   })
-  if (!workflow) throw new Error(`Workflow ${workflowId} not found`)
-
-  validateDAG(workflow.definition.tasks)
-
-  const [run] = await db.insert(workflowRuns).values({
-    workflowId,
-    status: WorkflowStatus.RUNNING,
-    input: input as Record<string, unknown>,
-    startedAt: new Date(),
-  }).returning()
-
-  broadcaster.emit('workflow.run.started', { runId: run!.id, workflowId })
-
-  const readyTaskIds = getReadyTasks(workflow.definition.tasks, new Set())
-  await enqueueTaskBatch(run!.id, workflow.definition.tasks, readyTaskIds, input, [])
-
-  return run!.id
 }
 
 export async function onTaskCompleted(taskRunId: string, output: unknown): Promise<void> {
-  const taskRun = await db.query.taskRuns.findFirst({ where: eq(taskRuns.id, taskRunId) })
-  if (!taskRun) return
+  return tracer.startActiveSpan('task.run.completed', async (span) => {
+    span.setAttribute('task.run.id', taskRunId)
+    try {
+      const taskRun = await db.query.taskRuns.findFirst({ where: eq(taskRuns.id, taskRunId) })
+      if (!taskRun) return
 
-  await db.update(taskRuns).set({
-    status: TaskStatus.COMPLETED,
-    completedAt: new Date(),
-    output: output as Record<string, unknown>,
-  }).where(eq(taskRuns.id, taskRunId))
+      await db.update(taskRuns).set({
+        status: TaskStatus.COMPLETED,
+        completedAt: new Date(),
+        output: output as Record<string, unknown>,
+      }).where(eq(taskRuns.id, taskRunId))
 
-  broadcaster.emit('task.run.completed', { taskRunId, workflowRunId: taskRun.workflowRunId })
-  await advanceWorkflow(taskRun.workflowRunId)
+      broadcaster.emit('task.run.completed', { taskRunId, workflowRunId: taskRun.workflowRunId })
+      await advanceWorkflow(taskRun.workflowRunId)
+    } catch (err) {
+      span.recordException(err as Error)
+      throw err
+    } finally {
+      span.end()
+    }
+  })
 }
 
 export async function onTaskFailed(taskRunId: string, error: string): Promise<void> {
-  const taskRun = await db.query.taskRuns.findFirst({ where: eq(taskRuns.id, taskRunId) })
-  if (!taskRun) return
+  return tracer.startActiveSpan('task.run.failed', async (span) => {
+    span.setAttribute('task.run.id', taskRunId)
+    try {
+      const taskRun = await db.query.taskRuns.findFirst({ where: eq(taskRuns.id, taskRunId) })
+      if (!taskRun) return
 
-  await db.update(taskRuns).set({
-    status: TaskStatus.FAILED,
-    completedAt: new Date(),
-    error,
-  }).where(eq(taskRuns.id, taskRunId))
+      await db.update(taskRuns).set({
+        status: TaskStatus.FAILED,
+        completedAt: new Date(),
+        error,
+      }).where(eq(taskRuns.id, taskRunId))
 
-  broadcaster.emit('task.run.failed', { taskRunId, workflowRunId: taskRun.workflowRunId, error })
-  await advanceWorkflow(taskRun.workflowRunId)
+      broadcaster.emit('task.run.failed', { taskRunId, workflowRunId: taskRun.workflowRunId, error })
+      await advanceWorkflow(taskRun.workflowRunId)
+    } catch (err) {
+      span.recordException(err as Error)
+      throw err
+    } finally {
+      span.end()
+    }
+  })
 }
 
 async function advanceWorkflow(workflowRunId: string): Promise<void> {

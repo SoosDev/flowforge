@@ -1,5 +1,6 @@
 import { Worker } from 'bullmq'
 import { eq } from 'drizzle-orm'
+import { trace } from '@opentelemetry/api'
 import { db } from './db/client.js'
 import { taskRuns } from '@flowforge/shared/db/schema'
 import { TaskStatus } from '@flowforge/shared'
@@ -8,6 +9,8 @@ import { getHandler, makeLogger } from './registry.js'
 import { redisConnection } from './queue/connection.js'
 import { getWorkerId } from './heartbeat.js'
 import { env } from './config.js'
+
+const tracer = trace.getTracer('flowforge-worker')
 
 async function notifyApi(path: string, body: unknown): Promise<void> {
   await fetch(`${env.API_URL}${path}`, {
@@ -38,18 +41,24 @@ export function startProcessor(): Worker {
       const log = makeLogger(taskRunId)
       await log('info', `Starting task: ${taskType}`)
 
-      const output = await handler.execute({
-        taskRunId,
-        workflowRunId,
-        input,
-        config,
-        log,
+      return tracer.startActiveSpan(`task.execute.${taskType}`, async (span) => {
+        span.setAttribute('task.run.id', taskRunId)
+        span.setAttribute('task.type', taskType)
+        span.setAttribute('workflow.run.id', workflowRunId)
+        try {
+          const output = await handler.execute({ taskRunId, workflowRunId, input, config, log })
+          span.setAttribute('task.success', true)
+          await log('info', `Completed task: ${taskType}`)
+          await notifyApi(`/internal/task-runs/${taskRunId}/complete`, { output })
+          return output
+        } catch (err) {
+          span.recordException(err as Error)
+          span.setAttribute('task.success', false)
+          throw err
+        } finally {
+          span.end()
+        }
       })
-
-      await log('info', `Completed task: ${taskType}`)
-      await notifyApi(`/internal/task-runs/${taskRunId}/complete`, { output })
-
-      return output
     },
     {
       connection: redisConnection,

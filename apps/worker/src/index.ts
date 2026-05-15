@@ -1,3 +1,4 @@
+import './observability/tracer.js'
 import './tasks/extract-text.js'
 import './tasks/chunk-text.js'
 import './tasks/generate-embeddings.js'
