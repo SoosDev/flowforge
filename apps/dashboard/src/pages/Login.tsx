@@ -70,6 +70,13 @@ export function Login() {
             {loading ? 'Please wait...' : mode === 'login' ? 'Sign in' : 'Create account'}
           </button>
         </form>
+        <button
+          type="button"
+          onClick={() => { setEmail('demo@flowforge.io'); setPassword('demo') }}
+          className="w-full py-2 text-slate-400 hover:text-white text-xs transition-colors mt-2"
+        >
+          Use demo account (demo@flowforge.io / demo)
+        </button>
       </Card>
     </div>
   )
