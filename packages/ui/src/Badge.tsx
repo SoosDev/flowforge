@@ -1,24 +1,23 @@
-import type { ReactNode } from 'react'
+type Variant = 'default' | 'success' | 'danger' | 'warning' | 'info' | 'muted'
 
-type Variant = 'default' | 'success' | 'warning' | 'error' | 'info'
-
-interface BadgeProps {
-  children: ReactNode
+interface Props {
+  label: string
   variant?: Variant
 }
 
-const variantClasses: Record<Variant, string> = {
-  default: 'bg-gray-100 text-gray-800',
-  success: 'bg-green-100 text-green-800',
-  warning: 'bg-yellow-100 text-yellow-800',
-  error: 'bg-red-100 text-red-800',
-  info: 'bg-blue-100 text-blue-800',
+const VARIANTS: Record<Variant, string> = {
+  default: 'bg-slate-700 text-slate-200',
+  success: 'bg-green-900/60 text-green-300 border border-green-700/50',
+  danger: 'bg-red-900/60 text-red-300 border border-red-700/50',
+  warning: 'bg-yellow-900/60 text-yellow-300 border border-yellow-700/50',
+  info: 'bg-blue-900/60 text-blue-300 border border-blue-700/50',
+  muted: 'bg-slate-800 text-slate-400',
 }
 
-export function Badge({ children, variant = 'default' }: BadgeProps) {
+export function Badge({ label, variant = 'default' }: Props) {
   return (
-    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${variantClasses[variant]}`}>
-      {children}
+    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${VARIANTS[variant]}`}>
+      {label}
     </span>
   )
 }
